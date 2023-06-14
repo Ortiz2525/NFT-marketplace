@@ -146,15 +146,23 @@ describe("Marketplace contract tests", () => {
       );
       await Marketplace.addPaymentToken(await USER1.address);
       const result1 = await Marketplace.paymentTokens(await USER1.address);
-      await expect(result1).to.be.equal(ethers.BigNumber.from("0")); 
+      await expect(result1).to.be.equal(ethers.BigNumber.from("0"));
+    });
+    it("Only marketplace owner add payment tokens", async () => {
+      const { Marketplace, USER1 } = await loadFixture(
+        deployNFTMarketplaceFixture
+      );
+      await expect(Marketplace.connect(USER1).addPaymentToken(await USER1.address)).to.be.revertedWith("Ownable: caller is not the owner"); 
     });
 
     it("NFT should be ERC721 token", async () => {
       const { Marketplace, USER1 } = await loadFixture(
         deployNFTMarketplaceFixture
       );
+      await expect(Marketplace.connect(USER1).addAcceptedNFTCollection(await USER1.address)).to.be.revertedWith("Ownable: caller is not the owner"); 
       await Marketplace.addAcceptedNFTCollection(await USER1.address);
       const result1 = await Marketplace.acceptedNFTCollection(await USER1.address);
+      
       await expect(result1).to.be.equal(ethers.BigNumber.from("0")); 
     });
   });
@@ -306,7 +314,13 @@ describe("Marketplace contract tests", () => {
           Marketplace.connect(USER1).bid(4545, 100)
         ).to.be.revertedWith("Invalid auction index");
       });
-
+      it("Auction is not open", async () => {
+        const { Marketplace, USER1 } = await loadFixture(deployFixture2);
+        await time.increase(5000);
+        await expect(Marketplace.connect(USER1).bid(0, 25)).to.be.revertedWith(
+          "Auction is not open"
+        );
+      });
       it("Should reject new Bid because the new bid amount is invalid", async () => {
         const { Marketplace, USER1 } = await loadFixture(deployFixture2);
         await expect(Marketplace.connect(USER1).bid(0, 25)).to.be.revertedWith(
@@ -354,8 +368,10 @@ describe("Marketplace contract tests", () => {
 
       it("Auction info are correctly updated", async () => {
         const { Marketplace, USER1 } = await loadFixture(deployFixture3);
+        await expect(Marketplace.connect(USER1).getCurrentBidOwner(4545)).to.be.revertedWith("Invalid auction index");
         let currentBidOwner = await Marketplace.getCurrentBidOwner(0);
         expect(currentBidOwner).to.equal(USER1.address);
+        await expect(Marketplace.connect(USER1).getCurrentBid(4545)).to.be.revertedWith("Invalid auction index");
         let currentBid = await Marketplace.getCurrentBid(0);
         expect(currentBid).to.equal(500);
       });
@@ -385,6 +401,8 @@ describe("Marketplace contract tests", () => {
         expect(currentBidOwner).to.equal(USER2.address);
         let currentBid = await Marketplace.getCurrentBid(0);
         expect(currentBid).to.equal(1000);
+
+        
       });
     });
   });
@@ -395,7 +413,7 @@ describe("Marketplace contract tests", () => {
         const { Marketplace, USER2 } = await loadFixture(
           claimFunctionSetUp.bind(null, true, 3600)
         );
-
+        await expect(Marketplace.connect(USER2).claimNFT(4545)).to.be.revertedWith("Invalid auction index");
         await expect(Marketplace.connect(USER2).claimNFT(0)).to.be.revertedWith(
           "Auction is still open"
         );
@@ -405,7 +423,7 @@ describe("Marketplace contract tests", () => {
         const { Marketplace, USER1 } = await loadFixture(
           claimFunctionSetUp.bind(null, true, 3600)
         );
-
+        
         // Increase block timestamp
         await time.increase(3700);
 
@@ -468,7 +486,7 @@ describe("Marketplace contract tests", () => {
         const { Marketplace, USER1 } = await loadFixture(
           claimFunctionSetUp.bind(null, true, 3600)
         );
-
+        await expect(Marketplace.connect(USER1).claimToken(4545)).to.be.revertedWith("Invalid auction index");
         await expect(
           Marketplace.connect(USER1).claimToken(0)
         ).to.be.revertedWith("Auction is still open");
@@ -539,13 +557,16 @@ describe("Marketplace contract tests", () => {
   describe("Transactions - Refund NFT", () => {
     describe("Refund NFT - Failure", () => {
       it("Should reject because there is already a bider on the auction", async () => {
-        const { Marketplace, USER1 } = await loadFixture(
+        const { Marketplace, USER1, USER2 } = await loadFixture(
           claimFunctionSetUp.bind(null, true, 3600)
         );
-
+        await expect(Marketplace.connect(USER1).refund(4545)).to.be.revertedWith("Invalid auction index");
+        await expect(Marketplace.connect(USER1).refund(0)).to.be.revertedWith("Auction is still open");
         // Increase block timestamp
         await time.increase(5000);
-
+        await expect(Marketplace.connect(USER2).refund(0)).to.be.revertedWith(
+          "Tokens can be claimed only by the creator of the auction"
+        );
         await expect(Marketplace.connect(USER1).refund(0)).to.be.revertedWith(
           "Existing bider for this auction"
         );

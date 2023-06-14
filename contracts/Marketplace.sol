@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.9;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./NFTCollection.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -72,6 +72,11 @@ contract Marketplace is IERC721Receiver, Ownable {
     event NFTClaimed(uint256 auctionIndex, uint256 nftId, address claimedBy);
     event TokensClaimed(uint256 auctionIndex, uint256 nftId, address claimedBy);
     event NFTRefunded(uint256 auctionIndex, uint256 nftId, address claimedBy);
+
+    modifier checkAuctionIndex(uint256 _auctionIndex) {
+        require(_auctionIndex < allAuctions.length, "Invalid auction index");
+        _;
+    }
 
     constructor(string memory _name) {
         name = _name;
@@ -199,8 +204,8 @@ contract Marketplace is IERC721Receiver, Ownable {
      */
     function getCurrentBidOwner(
         uint256 _auctionIndex
-    ) public view returns (address) {
-        require(_auctionIndex < allAuctions.length, "Invalid auction index");
+    ) public checkAuctionIndex(_auctionIndex) view returns (address) {
+        
         return allAuctions[_auctionIndex].currentBidOwner;
     }
 
@@ -211,8 +216,7 @@ contract Marketplace is IERC721Receiver, Ownable {
      */
     function getCurrentBid(
         uint256 _auctionIndex
-    ) public view returns (uint256) {
-        require(_auctionIndex < allAuctions.length, "Invalid auction index");
+    ) public checkAuctionIndex(_auctionIndex) view returns (uint256) {
         return allAuctions[_auctionIndex].currentBidPrice;
     }
 
@@ -224,32 +228,19 @@ contract Marketplace is IERC721Receiver, Ownable {
     function bid(
         uint256 _auctionIndex,
         uint256 _newBid
-    ) external returns (bool) {
-        require(_auctionIndex < allAuctions.length, "Invalid auction index");
+    ) external checkAuctionIndex(_auctionIndex) payable returns (bool) {
         Auction storage auction = allAuctions[_auctionIndex];
         require(isOpen(_auctionIndex), "Auction is not open");
-        require(
-            _newBid > auction.currentBidPrice,
-            "New bid price must be higher than the current bid"
-        );
-        require(
-            msg.sender != auction.creator,
-            "Creator of the auction cannot place new bid"
-        );
+        require(_newBid > auction.currentBidPrice, "New bid price must be higher than the current bid");
+        require(msg.sender != auction.creator, "Creator of the auction cannot place new bid");
 
         // get ERC20 token contract
-        ERC20 paymentToken = ERC20(auction.addressPaymentToken);
-        require(
-            paymentToken.transferFrom(msg.sender, address(this), _newBid),
-            "Tranfer of token failed"
-        );
+        IERC20 paymentToken = IERC20(auction.addressPaymentToken);
+        paymentToken.transferFrom(msg.sender, address(this), _newBid);
 
         // new bid is valid so must refund the current bid owner (if there is one!)
         if (auction.bidCount > 0) {
-            paymentToken.transfer(
-                auction.currentBidOwner,
-                auction.currentBidPrice
-            );
+            paymentToken.transfer(auction.currentBidOwner, auction.currentBidPrice);
         }
 
         // update auction info
@@ -271,8 +262,7 @@ contract Marketplace is IERC721Receiver, Ownable {
      * auction will receive the payment tokens in his wallet
      * @param _auctionIndex Index of auction
      */
-    function claimNFT(uint256 _auctionIndex) external {
-        require(_auctionIndex < allAuctions.length, "Invalid auction index");
+    function claimNFT(uint256 _auctionIndex) external checkAuctionIndex(_auctionIndex) payable {
 
         // Check if the auction is closed
         require(!isOpen(_auctionIndex), "Auction is still open");
@@ -301,7 +291,7 @@ contract Marketplace is IERC721Receiver, Ownable {
         );
 
         // Get ERC20 Payment token contract
-        ERC20 paymentToken = ERC20(auction.addressPaymentToken);
+        IERC20 paymentToken = IERC20(auction.addressPaymentToken);
         // Transfer locked token from the marketplace
         // contract to the auction creator address
         paymentToken.transfer(auction.creator, auction.currentBidPrice);
@@ -316,8 +306,7 @@ contract Marketplace is IERC721Receiver, Ownable {
      * auction will receive the NFT in his walled
      * @param _auctionIndex Index of the auction
      */
-    function claimToken(uint256 _auctionIndex) external {
-        require(_auctionIndex < allAuctions.length, "Invalid auction index"); // XXX Optimize
+    function claimToken(uint256 _auctionIndex) external checkAuctionIndex(_auctionIndex) payable {
         require(!isOpen(_auctionIndex), "Auction is still open");
         Auction storage auction = allAuctions[_auctionIndex];
 
@@ -337,7 +326,7 @@ contract Marketplace is IERC721Receiver, Ownable {
         );
 
         // Get ERC20 Payment token contract
-        ERC20 paymentToken = ERC20(auction.addressPaymentToken);
+        IERC20 paymentToken = IERC20(auction.addressPaymentToken);
         // Transfer locked tokens from the market place contract
         // to the wallet of the creator of the auction
         paymentToken.transfer(auction.creator, auction.currentBidPrice);
@@ -352,8 +341,7 @@ contract Marketplace is IERC721Receiver, Ownable {
      * in the contract
      * @param _auctionIndex Index of the auction
      */
-    function refund(uint256 _auctionIndex) external {
-        require(_auctionIndex < allAuctions.length, "Invalid auction index");
+    function refund(uint256 _auctionIndex) checkAuctionIndex(_auctionIndex) external {
         require(!isOpen(_auctionIndex), "Auction is still open");
         Auction storage auction = allAuctions[_auctionIndex];
         require(
@@ -423,15 +411,12 @@ contract Marketplace is IERC721Receiver, Ownable {
         );
     }
 
-    function buyNFT(uint256 _nftId) external {
+    function buyNFT(uint256 _nftId) external payable {
         FixedPriceSale storage sale = fixedPriceSales[_nftId];
         require(sale.active, "Sale is not active");
 
-        ERC20 paymentToken = ERC20(sale.addressPaymentToken);
-        require(
-            paymentToken.transferFrom(msg.sender, sale.seller, sale.price),
-            "Transfer of token failed"
-        );
+        IERC20 paymentToken = IERC20(sale.addressPaymentToken);
+        paymentToken.transferFrom(msg.sender, sale.seller, sale.price);
 
         NFTCollection nftCollection = NFTCollection(sale.addressNFTCollection);
         nftCollection.transferNFTFrom(address(this), msg.sender, _nftId);
