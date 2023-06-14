@@ -24,7 +24,7 @@ async function deployFixture1() {
   const NFTCollectionFactory = await ethers.getContractFactory("NFTCollection");
   const NFTCollection = await NFTCollectionFactory.deploy();
 
-  const PaymentTokenFactory = await ethers.getContractFactory("ERC20");
+  const PaymentTokenFactory = await ethers.getContractFactory("ERC20Mock");
   const PaymentToken = await PaymentTokenFactory.deploy(
     1000000,
     "Test Token",
@@ -99,7 +99,7 @@ async function claimFunctionSetUp(bider: any, Auctiontime: any) {
   const NFTCollectionFactory = await ethers.getContractFactory("NFTCollection");
   const NFTCollection = await NFTCollectionFactory.deploy();
 
-  const PaymentTokenFactory = await ethers.getContractFactory("ERC20");
+  const PaymentTokenFactory = await ethers.getContractFactory("ERC20Mock");
   const PaymentToken = await PaymentTokenFactory.deploy(1000000, "Test Token", "XTS");
 
   await NFTCollection.connect(USER1).mintNFT("Test NFT", "test.uri.domain.io");
@@ -324,7 +324,7 @@ describe("Marketplace contract tests", () => {
       it("Should reject new Bid because marketplace contract has no approval for token transfer", async () => {
         const { Marketplace, USER1 } = await loadFixture(deployFixture2);
         await expect(Marketplace.connect(USER1).bid(0, 60)).to.be.revertedWith(
-          "Invalid allowance"
+          "ERC20: insufficient allowance"
         );
       });
 
