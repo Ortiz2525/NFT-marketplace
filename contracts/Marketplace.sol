@@ -17,15 +17,14 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
 
     // Structure to define auction properties
     struct Auction {
-        uint256 index; // Auction Index
+        uint256 index;
         address addressNFTCollection; // Address of the ERC721 NFT Collection contract
         address addressPaymentToken; // Address of the ERC20 Payment Token contract
         uint256 nftId; // NFT Id
         address creator; // Creator of the Auction
-        address payable currentBidOwner; // Address of the highest bider
-        uint256 currentBidPrice; // Current highest bid for the auction
-        uint256 endAuction; // Timestamp for the end day&time of the auction
-        uint256 bidCount; // Number of bid placed on the auction
+        uint256 startPrice;
+        uint256 endPrice;
+        uint256 endAuction;
         bool isLiquidate;
     }
 
@@ -50,10 +49,9 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
         address addressPaymentToken,
         uint256 nftId,
         address mintedBy,
-        address currentBidOwner,
-        uint256 currentBidPrice,
-        uint256 endAuction,
-        uint256 bidCount
+        uint256 startPrice,
+        uint256 endPrice,
+        uint256 endAuction
     );
 
     event NewFixedPriceSale(
@@ -66,9 +64,6 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
 
     event FixedPriceSaleEnded(uint256 nftId);
     event NFTPurchased(uint256 nftId, address buyer);
-    event NewBidOnAuction(uint256 auctionIndex, uint256 newBid);
-    event NFTClaimed(uint256 auctionIndex, uint256 nftId, address claimedBy);
-    event TokensClaimed(uint256 auctionIndex, uint256 nftId, address claimedBy);
     event NFTRefunded(uint256 auctionIndex, uint256 nftId, address claimedBy);
 
     modifier checkAuctionIndex(uint256 _auctionIndex) {
@@ -86,6 +81,7 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
         address _addressPaymentToken,
         uint256 _nftId,
         uint256 _initialBid,
+        uint256 _endBid,
         uint256 _AuctionPeriod
     ) external returns (uint256) {
         //Check is addresses are valid
@@ -99,6 +95,7 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
         );
         require(_AuctionPeriod > 0, "Invalid auction period");
         require(_initialBid > 0, "Invalid initial bid price");
+        require(_endBid > _initialBid, "Invalid end bid price");
         NFTCollection nftCollection = NFTCollection(_addressNFTCollection);
         require(
             nftCollection.ownerOf(_nftId) == msg.sender,
@@ -111,7 +108,6 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
 
         // Lock NFT in Marketplace contract
         nftCollection.transferNFTFrom(msg.sender, address(this), _nftId);
-        address payable currentBidOwner = payable(address(0)); //Casting from address to address payable
         // Create new Auction object
         Auction memory newAuction = Auction({
             index: index,
@@ -119,10 +115,9 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
             addressPaymentToken: _addressPaymentToken,
             nftId: _nftId,
             creator: msg.sender,
-            currentBidOwner: currentBidOwner,
-            currentBidPrice: _initialBid,
+            startPrice: _initialBid,
+            endPrice: _endBid,
             endAuction: block.timestamp + _AuctionPeriod,
-            bidCount: 0,
             isLiquidate: false
         });
         allAuctions.push(newAuction); //update list
@@ -134,10 +129,9 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
             _addressPaymentToken,
             _nftId,
             msg.sender,
-            currentBidOwner,
             _initialBid,
-            block.timestamp + _AuctionPeriod,
-            0
+            _endBid,
+            block.timestamp + _AuctionPeriod
         );
         return index;
     }
@@ -145,135 +139,42 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
     function bid(
         uint256 _auctionIndex,
         uint256 _newBid
-    )
-        external
-        payable
-        checkAuctionIndex(_auctionIndex)
-        nonReentrant
-        returns (bool)
-    {
+    ) external payable checkAuctionIndex(_auctionIndex) nonReentrant {
         Auction storage auction = allAuctions[_auctionIndex];
         require(isOpen(_auctionIndex), "Auction is not open");
         require(
-            _newBid > auction.currentBidPrice,
+            _newBid > auction.startPrice,
             "New bid price must be higher than the current bid"
         );
         require(
             msg.sender != auction.creator,
             "Creator of the auction cannot place new bid"
         );
-
+        require(auction.isLiquidate == false, "Auction is liquidated");
         if (auction.addressPaymentToken != address(0)) {
             // ERC20 token
             IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-            paymentToken.transferFrom(msg.sender, address(this), _newBid);
-            // new bid is valid so must refund the current bid owner (if there is one!)
-            if (auction.bidCount > 0)
-                paymentToken.transfer(
-                    auction.currentBidOwner,
-                    auction.currentBidPrice
-                );
+            uint256 sendingAmount;
+            if (_newBid > auction.endPrice) {
+                sendingAmount = auction.endPrice;
+            } else {
+                sendingAmount = _newBid;
+            }
+            paymentToken.transferFrom(msg.sender, address(this), sendingAmount);
+            paymentToken.transfer(auction.creator, sendingAmount);
         } else {
             // Ether
             require(msg.value >= _newBid * 10 ** 18, "Not enough value");
-            if (auction.bidCount > 0)
-                payable(auction.currentBidOwner).transfer(
-                    auction.currentBidPrice * 10 ** 18
+            if (msg.value > auction.endPrice * 10 ** 18)
+                payable(msg.sender).transfer(
+                    msg.value - auction.endPrice * 10 ** 18
                 );
-            if (msg.value > _newBid * 10 ** 18)
-                payable(msg.sender).transfer(msg.value - _newBid * 10 ** 18);
         }
-        // update auction info
-        address payable newBidOwner = payable(msg.sender);
-        auction.currentBidOwner = newBidOwner;
-        auction.currentBidPrice = _newBid;
-        auction.bidCount++;
-
-        // Trigger public event
-        emit NewBidOnAuction(_auctionIndex, _newBid);
-
-        return true;
-    }
-
-    /**
-     * Function used by the winner of an auction to withdraw his NFT.
-     * When the NFT is withdrawn, the creator of the auction will receive the payment tokens in his wallet
-     */
-    function claimNFT(
-        uint256 _auctionIndex
-    ) external payable checkAuctionIndex(_auctionIndex) nonReentrant {
-        // Check if the auction is closed
-        require(!isOpen(_auctionIndex), "Auction is still open");
-
-        // Get auction
-        Auction storage auction = allAuctions[_auctionIndex];
-
-        // Check if the caller is the winner of the auction
-        require(
-            auction.currentBidOwner == msg.sender,
-            "NFT can be claimed only by the current bid owner"
-        );
-        require(auction.isLiquidate == false, "Auction is liquidated");
-        // Get NFT collection contract
         NFTCollection nftCollection = NFTCollection(
             auction.addressNFTCollection
         );
-        // Transfer NFT from marketplace contract
-        // to the winner address
-        nftCollection.transferNFTFrom(
-            address(this),
-            auction.currentBidOwner,
-            _auctionIndex
-        );
-
-        if (auction.addressPaymentToken != address(0)) {
-            //ERC20 token
-            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-            paymentToken.transfer(auction.creator, auction.currentBidPrice);
-        } else {
-            //Ether
-            payable(auction.creator).transfer(auction.currentBidPrice);
-        }
+        nftCollection.transferNFTFrom(address(this), msg.sender, _auctionIndex);
         auction.isLiquidate = true;
-        emit NFTClaimed(_auctionIndex, auction.nftId, msg.sender);
-    }
-
-    /**
-     * Function used by the creator of an auction to withdraw his tokens when the auction is closed
-     * When the Token are withdrawn, the winned of the auction will receive the NFT in his walled
-     */
-    function claimToken(
-        uint256 _auctionIndex
-    ) external payable checkAuctionIndex(_auctionIndex) nonReentrant {
-        require(!isOpen(_auctionIndex), "Auction is still open");
-        Auction storage auction = allAuctions[_auctionIndex];
-
-        require(
-            auction.creator == msg.sender,
-            "Tokens can be claimed only by the creator of the auction"
-        );
-        require(auction.isLiquidate == false, "Auction is liquidated");
-        NFTCollection nftCollection = NFTCollection(
-            auction.addressNFTCollection
-        );
-        // Transfer NFT from marketplace contract
-        // to the winned of the auction
-        nftCollection.transferFrom(
-            address(this),
-            auction.currentBidOwner,
-            auction.nftId
-        );
-
-        if (auction.addressPaymentToken != address(0)) {
-            //ERC20 token
-            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-            paymentToken.transfer(auction.creator, auction.currentBidPrice);
-        } else {
-            //Ether
-            payable(auction.creator).transfer(auction.currentBidPrice);
-        }
-        auction.isLiquidate = true;
-        emit TokensClaimed(_auctionIndex, auction.nftId, msg.sender);
     }
 
     function createFixedPriceSale(
@@ -358,7 +259,7 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
             "Tokens can be claimed only by the creator of the auction"
         );
         require(
-            auction.currentBidOwner == address(0),
+            auction.isLiquidate == false,
             "Existing bider for this auction"
         );
 
@@ -395,20 +296,6 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
         Auction storage auction = allAuctions[_auctionIndex];
         if (block.timestamp >= auction.endAuction) return false;
         return true;
-    }
-
-    // Return the address of the current highest bider for a specific auction
-    function getCurrentBidOwner(
-        uint256 _auctionIndex
-    ) public view checkAuctionIndex(_auctionIndex) returns (address) {
-        return allAuctions[_auctionIndex].currentBidOwner;
-    }
-
-    // Return the current highest bid price for a specific auction
-    function getCurrentBid(
-        uint256 _auctionIndex
-    ) public view checkAuctionIndex(_auctionIndex) returns (uint256) {
-        return allAuctions[_auctionIndex].currentBidPrice;
     }
 
     function addPaymentToken(address _addr) public onlyOwner {
