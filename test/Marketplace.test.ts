@@ -53,14 +53,14 @@ async function deployFixture2() {
 
   // Create new auction
 
-  let endAuction = Math.floor(Date.now() / 1000) + 3600;
+  let auctionPeriod = 3600;
 
   await Marketplace.createAuction(
     NFTCollection.address,
     PaymentToken.address,
     0,
     50,
-    endAuction
+    auctionPeriod
   );
   return { Marketplace, NFTCollection, PaymentToken, owner, USER1, USER2 };
 }
@@ -111,8 +111,7 @@ async function claimFunctionSetUp(bider: any, Auctiontime: any) {
   await Marketplace.addPaymentToken(PaymentToken.address);
 
   const currentTimestamp = await time.latest();
-  let endAuction = currentTimestamp + Auctiontime;
-  await Marketplace.connect(USER1).createAuction(NFTCollection.address, PaymentToken.address, 0, 50, endAuction);
+  await Marketplace.connect(USER1).createAuction(NFTCollection.address, PaymentToken.address, 0, 50, Auctiontime);
 
   if (bider) {
     // allow marketplace contract to get token
@@ -155,6 +154,7 @@ describe("Marketplace contract tests", () => {
         deployNFTMarketplaceFixture
       );
       await expect(Marketplace.connect(USER1).addPaymentToken(await USER1.address)).to.be.revertedWith("Ownable: caller is not the owner"); 
+      await expect(Marketplace.connect(USER1).removePaymentToken(await USER1.address)).to.be.revertedWith("Ownable: caller is not the owner"); 
     });
 
     it("NFT should be ERC721 token", async () => {
@@ -162,6 +162,7 @@ describe("Marketplace contract tests", () => {
         deployNFTMarketplaceFixture
       );
       await expect(Marketplace.connect(USER1).addAcceptedNFTCollection(await USER1.address)).to.be.revertedWith("Ownable: caller is not the owner"); 
+      await expect(Marketplace.connect(USER1).removeAcceptedNFTCollection(await USER1.address)).to.be.revertedWith("Ownable: caller is not the owner");
       await Marketplace.addAcceptedNFTCollection(await USER1.address);
       const result1 = await Marketplace.acceptedNFTCollection(await USER1.address);
       
@@ -206,7 +207,7 @@ describe("Marketplace contract tests", () => {
       });
 
       it("Should reject Auction because the end date of the auction is invalid", async () => {
-        let invalidEndAuction = 1111111111;
+        let invalidEndAuction = 0;
         const { Marketplace, NFTCollection, PaymentToken } = await loadFixture(
           deployFixture1
         );
@@ -219,7 +220,7 @@ describe("Marketplace contract tests", () => {
             50,
             invalidEndAuction
           )
-        ).to.be.revertedWith("Invalid end date for auction");
+        ).to.be.revertedWith("Invalid auction period");
       });
 
       it("Should reject Auction because the initial bid price is invalid", async () => {
@@ -318,7 +319,8 @@ describe("Marketplace contract tests", () => {
       });
       it("Auction is not open", async () => {
         const { Marketplace, USER1 } = await loadFixture(deployFixture2);
-        await time.increase(3600);
+        //await time.increase(3600);
+        await ethers.provider.send("evm_increaseTime", [3600]);
         await expect(Marketplace.connect(USER1).bid(0, 25)).to.be.revertedWith(
           "Auction is not open"
         );
@@ -404,56 +406,71 @@ describe("Marketplace contract tests", () => {
         let currentBid = await Marketplace.getCurrentBid(0);
         expect(currentBid).to.equal(1000);       
       });
-
-      it("Auction with Ether", async () => {
-        const [owner, USER1, USER2, USER3] = await ethers.getSigners();
-        const MarketplaceFactory = await ethers.getContractFactory("Marketplace");
-        const Marketplace = await MarketplaceFactory.deploy("My NFT Marketplace");        
-        const NFTCollectionFactory = await ethers.getContractFactory("NFTCollection");
-        const NFTCollection = await NFTCollectionFactory.deploy();
-
-        const PaymentTokenFactory = await ethers.getContractFactory("ERC20Mock");
-        const PaymentToken = await PaymentTokenFactory.deploy(
-          1000000,
-          "Test Token",
-          "XTS"
-        );
-        await NFTCollection.connect(USER3).mintNFT("Test NFT", "test.uri.domain.io");
-        await Marketplace.addAcceptedNFTCollection(NFTCollection.address);
-        await Marketplace.addPaymentToken(PaymentToken.address);
-        // Approve NFT transfer by the marketplace
-        await NFTCollection.connect(USER3).approve(Marketplace.address, 0);
-        let endAuction = Math.floor(Date.now() / 1000) + 3600;
-
-        await Marketplace.connect(USER3).createAuction(
-          NFTCollection.address,
-          "0x0000000000000000000000000000000000000000",
-          0,
-          50,
-          endAuction
-        );
-        const balance1 = await USER2.getBalance();
-        console.log(`Balance of USER2-1: ${ethers.utils.formatEther(balance1)} ETH`);
-        const price1 = ethers.utils.parseEther("500");
-        await expect(Marketplace.connect(USER2).bid(0, 1000,{value: price1}))
-        .to.be.revertedWith("Not enough value");
-        const price2 = ethers.utils.parseEther("1100");
-        await Marketplace.connect(USER2).bid(0, 1000,{value: price2});
-        const balance2 = await USER2.getBalance();
-        expect(balance2).to.be.lte(ethers.utils.parseEther("9000"));
-        console.log(`Balance of USER2-2: ${ethers.utils.formatEther(balance2)} ETH`);
-        const price3 = ethers.utils.parseEther("1500");
-        await Marketplace.connect(USER1).bid(0, 1500,{value: price3});
-        time.increase(5000);
-
-        await Marketplace.connect(USER1).claimNFT(0);
-//        await Marketplace.connect(USER3).claimToken(0);
-
-        let newOwnerNFT = await NFTCollection.ownerOf(0);
-        expect(newOwnerNFT).to.equal(USER1.address);
-      });
-
     });
+  });
+  describe("Auction Payment Ether", () => {
+    let Marketplace : any;
+    let NFTCollection : any;
+    let owner: any;
+    let USER1: any;
+    let USER2: any;
+    let USER3: any;
+    beforeEach(async () => {
+      [owner, USER1, USER2, USER3] = await ethers.getSigners();
+      const MarketplaceFactory = await ethers.getContractFactory("Marketplace");
+      Marketplace = await MarketplaceFactory.deploy("My NFT Marketplace");        
+      const NFTCollectionFactory = await ethers.getContractFactory("NFTCollection");
+      NFTCollection = await NFTCollectionFactory.deploy();
+
+      const PaymentTokenFactory = await ethers.getContractFactory("ERC20Mock");
+      const PaymentToken = await PaymentTokenFactory.deploy(
+        1000000,
+        "Test Token",
+        "XTS"
+      );
+      await NFTCollection.connect(USER3).mintNFT("Test NFT", "test.uri.domain.io");
+      await Marketplace.removeAcceptedNFTCollection(NFTCollection.address);
+      await Marketplace.addAcceptedNFTCollection(NFTCollection.address);
+      await Marketplace.removeAcceptedNFTCollection(NFTCollection.address);
+      await Marketplace.addAcceptedNFTCollection(NFTCollection.address);
+      
+      await Marketplace.removePaymentToken(PaymentToken.address);
+      await Marketplace.addPaymentToken(PaymentToken.address);
+      await Marketplace.removePaymentToken(PaymentToken.address);
+      // Approve NFT transfer by the marketplace
+      await NFTCollection.connect(USER3).approve(Marketplace.address, 0);
+      let auctionPeriod = 3600;
+     // console.log(endAuction);
+      await Marketplace.connect(USER3).createAuction(
+        NFTCollection.address,
+        "0x0000000000000000000000000000000000000000",
+        0,
+        50,
+        auctionPeriod
+      );
+      const balance1 = await USER2.getBalance();
+      const price1 = ethers.utils.parseEther("500");
+      await expect(Marketplace.connect(USER2).bid(0, 1000,{value: price1})).to.be.revertedWith("Not enough value");
+      const price2 = ethers.utils.parseEther("1100");
+      await Marketplace.connect(USER2).bid(0, 1000,{value: price2});
+      const balance2 = await USER2.getBalance();
+      expect(balance2).to.be.lte(ethers.utils.parseEther("9000"));
+      const price3 = ethers.utils.parseEther("1500");
+      await Marketplace.connect(USER1).bid(0, 1500,{value: price3});
+      await ethers.provider.send("evm_increaseTime", [5000]);
+    });
+    it("Auction with Ether (1)", async () => {     
+      await Marketplace.connect(USER1).claimNFT(0);
+      let newOwnerNFT = await NFTCollection.ownerOf(0);
+      expect(newOwnerNFT).to.equal(USER1.address);
+    });
+     it("Auction with Ether (2)", async () => {
+      
+      await Marketplace.connect(USER3).claimToken(0);
+      let newOwnerNFT = await NFTCollection.ownerOf(0);
+      expect(newOwnerNFT).to.equal(USER1.address);
+
+     });
   });
 
   describe("Transactions - Claim NFT", () => {
@@ -523,7 +540,7 @@ describe("Marketplace contract tests", () => {
 
         await Marketplace.connect(USER2).claimNFT(0);
         await expect(Marketplace.connect(USER2).claimNFT(0)).to.be.revertedWith(
-          "ERC721: caller is not token owner or approved"
+          "Auction is liquidated"
         );
       });
     });
@@ -598,7 +615,7 @@ describe("Marketplace contract tests", () => {
         await Marketplace.connect(USER1).claimToken(0);
         await expect(
           Marketplace.connect(USER1).claimToken(0)
-        ).to.be.revertedWith("ERC721: caller is not token owner or approved");
+        ).to.be.revertedWith("Auction is liquidated");
       });
     });
   });
@@ -734,8 +751,8 @@ describe("Marketplace contract tests", () => {
       });
     });
   
-    describe("Buy NFT - Success", () => {
-      it("Should buy NFT at a fixed price", async () => {
+    describe("Buy NFT with tokens - Success", () => {
+      it("Should buy NFT at a fixed price with token", async () => {
         const { Marketplace, NFTCollection, PaymentToken, USER1 } = await loadFixture(deployFixture1);
   
         await NFTCollection.approve(Marketplace.address, 0);
@@ -750,6 +767,41 @@ describe("Marketplace contract tests", () => {
         await PaymentToken.transfer(USER1.address, 50);
   
         await expect(Marketplace.connect(USER1).buyNFT(0))
+          .to.emit(Marketplace, "NFTPurchased")
+          .withArgs(0, USER1.address);
+      });
+    });
+    describe("Buy NFT with Ether - Success", () => {
+      it("Should buy NFT at a fixed price with Ether", async () => {
+        const { Marketplace, NFTCollection, PaymentToken, USER1 } = await loadFixture(deployFixture1);
+  
+        await NFTCollection.approve(Marketplace.address, 0);
+        await Marketplace.createFixedPriceSale(
+          NFTCollection.address,
+          "0x0000000000000000000000000000000000000000",
+          0,
+          50
+        );
+        const price1 = ethers.utils.parseEther("10");
+        await expect(Marketplace.connect(USER1).buyNFT(0, {value: price1})).to.be.revertedWith("Not enough value");
+      
+        const price2 = ethers.utils.parseEther("50");
+        await expect(Marketplace.connect(USER1).buyNFT(0, {value: price2}))
+          .to.emit(Marketplace, "NFTPurchased")
+          .withArgs(0, USER1.address);
+      });
+      it("Should buy NFT at a fixed price with Ether(pay rest of Ether)", async () => {
+        const { Marketplace, NFTCollection, PaymentToken, USER1 } = await loadFixture(deployFixture1);
+  
+        await NFTCollection.approve(Marketplace.address, 0);
+        await Marketplace.createFixedPriceSale(
+          NFTCollection.address,
+          "0x0000000000000000000000000000000000000000",
+          0,
+          50
+        );     
+        const price2 = ethers.utils.parseEther("100");
+        await expect(Marketplace.connect(USER1).buyNFT(0, {value: price2}))
           .to.emit(Marketplace, "NFTPurchased")
           .withArgs(0, USER1.address);
       });
