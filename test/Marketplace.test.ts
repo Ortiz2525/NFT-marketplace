@@ -396,6 +396,9 @@ describe("Marketplace contract tests", () => {
         100,
         auctionPeriod
       );
+      
+    });
+    it("Auction with Ether, When Ether and bid amount are bigger than endPrice", async () => {
       const balance1 = await USER2.getBalance();
       const price1 = ethers.utils.parseEther("500");
       await expect(Marketplace.connect(USER2).bid(0, 1000,{value: price1})).to.be.revertedWith("Not enough value");
@@ -403,13 +406,40 @@ describe("Marketplace contract tests", () => {
       await Marketplace.connect(USER2).bid(0, 1000,{value: price2});
       const balance2 = await USER2.getBalance();
       expect(balance2).to.be.lte(ethers.utils.parseEther("9900"));
+      const balance3 = await USER3.getBalance();
+      expect(balance3).to.be.gte(ethers.utils.parseEther("10099"));
+
       const price3 = ethers.utils.parseEther("1500");
       await expect(Marketplace.connect(USER1).bid(0, 1500,{value: price3})).to.be.revertedWith("Auction is liquidated");
-      await ethers.provider.send("evm_increaseTime", [5000]);
-    });
-    it("Auction with Ether (1)", async () => {     
+      await ethers.provider.send("evm_increaseTime", [5000]);     
       let newOwnerNFT = await NFTCollection.ownerOf(0);
       expect(newOwnerNFT).to.equal(USER2.address);
+    });
+    it("Auction with Ether, When only Ether amount are bigger than endPrice", async () => {
+      const balance1 = await USER2.getBalance();
+      const price2 = ethers.utils.parseEther("100");
+      await Marketplace.connect(USER2).bid(0, 80,{value: price2});
+      const balance2 = await USER2.getBalance();
+      expect(balance2).to.be.lte(ethers.utils.parseEther("9820"));
+      expect(balance2).to.be.gte(ethers.utils.parseEther("9819"));
+      const balance3 = await USER3.getBalance();
+      expect(balance3).to.be.gte(ethers.utils.parseEther("10179"));
+      expect(balance3).to.be.lte(ethers.utils.parseEther("10181"));
+      let newOwnerNFT = await NFTCollection.ownerOf(0);
+      expect(newOwnerNFT).to.equal(USER2.address);    
+    });
+    it("Auction with Ether, When Ether and bid amount are smaller than endPrice", async () => {
+      const balance1 = await USER2.getBalance();
+      const price2 = ethers.utils.parseEther("80");
+      await Marketplace.connect(USER2).bid(0, 80,{value: price2});
+      const balance2 = await USER2.getBalance();
+      expect(balance2).to.be.lte(ethers.utils.parseEther("9740"));
+      expect(balance2).to.be.gte(ethers.utils.parseEther("9739"));
+      const balance3 = await USER3.getBalance();
+      expect(balance3).to.be.gte(ethers.utils.parseEther("10259"));
+      expect(balance3).to.be.lte(ethers.utils.parseEther("10261"));
+      let newOwnerNFT = await NFTCollection.ownerOf(0);
+      expect(newOwnerNFT).to.equal(USER2.address);    
     });
   });
 

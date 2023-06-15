@@ -20,8 +20,8 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
         uint256 index;
         address addressNFTCollection; // Address of the ERC721 NFT Collection contract
         address addressPaymentToken; // Address of the ERC20 Payment Token contract
-        uint256 nftId; // NFT Id
-        address creator; // Creator of the Auction
+        uint256 nftId; 
+        address creator; 
         uint256 startPrice;
         uint256 endPrice;
         uint256 endAuction;
@@ -63,6 +63,7 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
     );
 
     event FixedPriceSaleEnded(uint256 nftId);
+    event AuctionFinished(uint256 auctionIndex, uint256 price);
     event NFTPurchased(uint256 nftId, address buyer);
     event NFTRefunded(uint256 auctionIndex, uint256 nftId, address claimedBy);
 
@@ -141,6 +142,7 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
         uint256 _newBid
     ) external payable checkAuctionIndex(_auctionIndex) nonReentrant {
         Auction storage auction = allAuctions[_auctionIndex];
+        
         require(isOpen(_auctionIndex), "Auction is not open");
         require(
             _newBid > auction.startPrice,
@@ -151,30 +153,35 @@ contract Marketplace is IERC721Receiver, Ownable, ReentrancyGuard {
             "Creator of the auction cannot place new bid"
         );
         require(auction.isLiquidate == false, "Auction is liquidated");
-        if (auction.addressPaymentToken != address(0)) {
-            // ERC20 token
-            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-            uint256 sendingAmount;
-            if (_newBid > auction.endPrice) {
+        uint256 sendingAmount;
+        if (_newBid > auction.endPrice) {
                 sendingAmount = auction.endPrice;
             } else {
                 sendingAmount = _newBid;
             }
+        if (auction.addressPaymentToken != address(0)) {
+            // ERC20 token
+            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
             paymentToken.transferFrom(msg.sender, address(this), sendingAmount);
             paymentToken.transfer(auction.creator, sendingAmount);
         } else {
             // Ether
             require(msg.value >= _newBid * 10 ** 18, "Not enough value");
-            if (msg.value > auction.endPrice * 10 ** 18)
+            if (msg.value > sendingAmount * 10 ** 18)
                 payable(msg.sender).transfer(
-                    msg.value - auction.endPrice * 10 ** 18
+                    msg.value - sendingAmount * 10 ** 18
                 );
+            payable(auction.creator).transfer(sendingAmount * 10 ** 18);
         }
         NFTCollection nftCollection = NFTCollection(
             auction.addressNFTCollection
         );
         nftCollection.transferNFTFrom(address(this), msg.sender, _auctionIndex);
         auction.isLiquidate = true;
+        emit AuctionFinished(
+            index,
+            sendingAmount
+        );
     }
 
     function createFixedPriceSale(
