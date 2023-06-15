@@ -80,6 +80,7 @@ contract Marketplace is IERC721Receiver, Ownable {
 
     constructor(string memory _name) {
         name = _name;
+        paymentTokens[address(0)] = 1;
     }
 
     function addPaymentToken(address _addr) public onlyOwner returns (bool) {
@@ -234,15 +235,17 @@ contract Marketplace is IERC721Receiver, Ownable {
         require(_newBid > auction.currentBidPrice, "New bid price must be higher than the current bid");
         require(msg.sender != auction.creator, "Creator of the auction cannot place new bid");
 
-        // get ERC20 token contract
-        IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-        paymentToken.transferFrom(msg.sender, address(this), _newBid);
-
-        // new bid is valid so must refund the current bid owner (if there is one!)
-        if (auction.bidCount > 0) {
-            paymentToken.transfer(auction.currentBidOwner, auction.currentBidPrice);
+        if (auction.addressPaymentToken != address(0)) {
+            // get ERC20 token contract
+            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
+            paymentToken.transferFrom(msg.sender, address(this), _newBid);
+            // new bid is valid so must refund the current bid owner (if there is one!)
+            if (auction.bidCount > 0) paymentToken.transfer(auction.currentBidOwner, auction.currentBidPrice);
+        } else {
+            require(msg.value >= _newBid*10**18, "Not enough value");
+            if (auction.bidCount > 0) payable(auction.currentBidOwner).transfer(auction.currentBidPrice*10**18);
+            if (msg.value > _newBid*10**18) payable(msg.sender).transfer(msg.value-_newBid*10**18);
         }
-
         // update auction info
         address payable newBidOwner = payable(msg.sender);
         auction.currentBidOwner = newBidOwner;
@@ -290,11 +293,13 @@ contract Marketplace is IERC721Receiver, Ownable {
             )
         );
 
-        // Get ERC20 Payment token contract
-        IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-        // Transfer locked token from the marketplace
-        // contract to the auction creator address
-        paymentToken.transfer(auction.creator, auction.currentBidPrice);
+       if (auction.addressPaymentToken != address(0)) {
+            // get ERC20 token contract
+            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
+            paymentToken.transfer(auction.creator, auction.currentBidPrice);
+        } else {
+            payable(auction.creator).transfer(auction.currentBidPrice);
+        }        
 
         emit NFTClaimed(_auctionIndex, auction.nftId, msg.sender);
     }
@@ -325,11 +330,14 @@ contract Marketplace is IERC721Receiver, Ownable {
             auction.nftId
         );
 
-        // Get ERC20 Payment token contract
-        IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-        // Transfer locked tokens from the market place contract
-        // to the wallet of the creator of the auction
-        paymentToken.transfer(auction.creator, auction.currentBidPrice);
+
+        if (auction.addressPaymentToken != address(0)) {
+            // get ERC20 token contract
+            IERC20 paymentToken = IERC20(auction.addressPaymentToken);
+            paymentToken.transfer(auction.creator, auction.currentBidPrice);
+        } else {
+            payable(auction.creator).transfer(auction.currentBidPrice);
+        }       
 
         emit TokensClaimed(_auctionIndex, auction.nftId, msg.sender);
     }
