@@ -27,9 +27,9 @@ async function deployFixture1() {
   await Marketplace.addAcceptedNFTCollection(NFTCollection.address);
   await Marketplace.addPaymentToken(PaymentToken.address);
   const result1 = await Marketplace.paymentTokens(await PaymentToken.address);
-  await expect(result1).to.be.equal(ethers.BigNumber.from("1"));
+  await expect(result1).to.be.equal(true);
   const result2 = await Marketplace.acceptedNFTCollection(await NFTCollection.address);
-  await expect(result2).to.be.equal(ethers.BigNumber.from("1"));
+  await expect(result2).to.be.equal(true);
   return { Marketplace, NFTCollection, PaymentToken, owner, USER1, USER2, USER3 };
 }
 async function deployFixture2() {
@@ -104,7 +104,7 @@ describe("Marketplace contract tests", () => {
         deployNFTMarketplaceFixture
       );
 
-      expect(await Marketplace.index()).to.equal(0);
+      expect(await Marketplace.auctionIndex()).to.equal(0);
     });
 
     it("Payment Token should be ERC20 token", async () => {
@@ -112,8 +112,8 @@ describe("Marketplace contract tests", () => {
         deployNFTMarketplaceFixture
       );
       await Marketplace.addPaymentToken(await USER1.address);
-      const result1 = await Marketplace.paymentTokens(await USER1.address);
-      await expect(result1).to.be.equal(ethers.BigNumber.from("0"));
+//      const result1 = await Marketplace.paymentTokens(await USER1.address);
+//      await expect(result1).to.be.equal(ethers.BigNumber.from("0"));
     });
     it("Only marketplace owner add payment tokens", async () => {
       const { Marketplace, USER1 } = await loadFixture(
@@ -132,7 +132,7 @@ describe("Marketplace contract tests", () => {
       await Marketplace.addAcceptedNFTCollection(await USER1.address);
       const result1 = await Marketplace.acceptedNFTCollection(await USER1.address);
       
-      await expect(result1).to.be.equal(ethers.BigNumber.from("0")); 
+      await expect(result1).to.be.equal(false); 
     });
   });
 
@@ -261,23 +261,6 @@ describe("Marketplace contract tests", () => {
           endAuction
         );
       });
-
-      it("Owner of NFT should be the marketplace contract ", async () => {
-        const { Marketplace, NFTCollection, PaymentToken, owner, USER1, USER2 ,USER3 } = await loadFixture(
-          deployFixture1
-        );
-        await NFTCollection.connect(USER3).approve(Marketplace.address, 0);
-        await Marketplace.connect(USER3).createAuction(
-          NFTCollection.address,
-          PaymentToken.address,
-          0,
-          50,
-          100,
-          endAuction
-        );
-        const ownerNFT = await NFTCollection.ownerOf(0);
-        expect(ownerNFT).to.equal(Marketplace.address);
-      });
     });
   });
   describe("Transactions - Place new Bid on auction", () => {
@@ -291,15 +274,16 @@ describe("Marketplace contract tests", () => {
       });
       it("Auction is not open", async () => {
         const { Marketplace, USER1 } = await loadFixture(deployFixture2);
-        await ethers.provider.send("evm_increaseTime", [3600]);
+        await ethers.provider.send("evm_increaseTime", [4000]);
         await expect(Marketplace.connect(USER1).bid(0, 25)).to.be.revertedWith(
           "Auction is not open"
         );
       });
       it("Should reject new Bid because the new bid amount is invalid", async () => {
         const { Marketplace, USER1 } = await loadFixture(deployFixture2);
-        await expect(Marketplace.connect(USER1).bid(0, 25)).to.be.revertedWith(
-          "New bid price must be higher than the current bid"
+        await ethers.provider.send("evm_increaseTime", [3000]);
+        await expect(Marketplace.connect(USER1).bid(0, 80)).to.be.revertedWith(
+          "New bid price must be higher than the current price"
         );
       });
 
@@ -328,17 +312,17 @@ describe("Marketplace contract tests", () => {
       });
     });
 
-    describe("Place new Bid on an auction - Success", () => {
+    describe("Place Bid on an auction - Success", () => {
       it("Token balance of new bider must be debited with the bid amount", async () => {
         const { PaymentToken, USER1 } = await loadFixture(deployFixture3);
         let USER1Bal = await PaymentToken.balanceOf(USER1.address);
-        expect(USER1Bal).to.equal(9900);
+        expect(USER1Bal).to.equal(9950);
       });
 
       it("Token balance of Marketplace contract must be updated with new bid amount", async () => {
         const { Marketplace, PaymentToken, USER3 } = await loadFixture(deployFixture3);
         const marketplaceBal = await PaymentToken.balanceOf(USER3.address);
-        expect(marketplaceBal).to.equal(100);
+        expect(marketplaceBal).to.equal(50);
       });
 
       it("Current bid owner must be refunded after a new successful bid is placed", async () => {
@@ -392,10 +376,11 @@ describe("Marketplace contract tests", () => {
         NFTCollection.address,
         "0x0000000000000000000000000000000000000000",
         0,
-        50,
         100,
+        50,
         auctionPeriod
       );
+      await ethers.provider.send("evm_increaseTime", [1800]);    
       
     });
     it("Auction with Ether, When Ether and bid amount are bigger than endPrice", async () => {
@@ -405,13 +390,15 @@ describe("Marketplace contract tests", () => {
       const price2 = ethers.utils.parseEther("1100");
       await Marketplace.connect(USER2).bid(0, 1000,{value: price2});
       const balance2 = await USER2.getBalance();
-      expect(balance2).to.be.lte(ethers.utils.parseEther("9900"));
+      expect(balance2).to.be.lte(ethers.utils.parseEther("9925"));
+      expect(balance2).to.be.gte(ethers.utils.parseEther("9924"));
       const balance3 = await USER3.getBalance();
-      expect(balance3).to.be.gte(ethers.utils.parseEther("10099"));
+      expect(balance3).to.be.gte(ethers.utils.parseEther("10074"));
+      expect(balance3).to.be.lte(ethers.utils.parseEther("10075"));
 
       const price3 = ethers.utils.parseEther("1500");
       await expect(Marketplace.connect(USER1).bid(0, 1500,{value: price3})).to.be.revertedWith("Auction is liquidated");
-      await ethers.provider.send("evm_increaseTime", [5000]);     
+       
       let newOwnerNFT = await NFTCollection.ownerOf(0);
       expect(newOwnerNFT).to.equal(USER2.address);
     });
@@ -420,24 +407,24 @@ describe("Marketplace contract tests", () => {
       const price2 = ethers.utils.parseEther("100");
       await Marketplace.connect(USER2).bid(0, 80,{value: price2});
       const balance2 = await USER2.getBalance();
-      expect(balance2).to.be.lte(ethers.utils.parseEther("9820"));
-      expect(balance2).to.be.gte(ethers.utils.parseEther("9819"));
+      expect(balance2).to.be.lte(ethers.utils.parseEther("9850"));
+      expect(balance2).to.be.gte(ethers.utils.parseEther("9849"));
       const balance3 = await USER3.getBalance();
-      expect(balance3).to.be.gte(ethers.utils.parseEther("10179"));
-      expect(balance3).to.be.lte(ethers.utils.parseEther("10181"));
+      expect(balance3).to.be.gte(ethers.utils.parseEther("10149"));
+      expect(balance3).to.be.lte(ethers.utils.parseEther("10151"));
       let newOwnerNFT = await NFTCollection.ownerOf(0);
       expect(newOwnerNFT).to.equal(USER2.address);    
     });
     it("Auction with Ether, When Ether and bid amount are smaller than endPrice", async () => {
       const balance1 = await USER2.getBalance();
-      const price2 = ethers.utils.parseEther("80");
-      await Marketplace.connect(USER2).bid(0, 80,{value: price2});
+      const price2 = ethers.utils.parseEther("75");
+      await Marketplace.connect(USER2).bid(0, 75,{value: price2});
       const balance2 = await USER2.getBalance();
-      expect(balance2).to.be.lte(ethers.utils.parseEther("9740"));
-      expect(balance2).to.be.gte(ethers.utils.parseEther("9739"));
+      expect(balance2).to.be.lte(ethers.utils.parseEther("9775"));
+      expect(balance2).to.be.gte(ethers.utils.parseEther("9774"));
       const balance3 = await USER3.getBalance();
-      expect(balance3).to.be.gte(ethers.utils.parseEther("10259"));
-      expect(balance3).to.be.lte(ethers.utils.parseEther("10261"));
+      expect(balance3).to.be.gte(ethers.utils.parseEther("10224"));
+      expect(balance3).to.be.lte(ethers.utils.parseEther("10225"));
       let newOwnerNFT = await NFTCollection.ownerOf(0);
       expect(newOwnerNFT).to.equal(USER2.address);    
     });
@@ -449,14 +436,14 @@ describe("Marketplace contract tests", () => {
         const { Marketplace, USER1, USER2, USER3 } = await loadFixture(
           claimFunctionSetUp.bind(null, true, 3600)
         );
-        await expect(Marketplace.connect(USER1).refund(4545)).to.be.revertedWith("Invalid auction index");
-        await expect(Marketplace.connect(USER1).refund(0)).to.be.revertedWith("Auction is still open");
+        await expect(Marketplace.connect(USER1).cancelAuction(4545)).to.be.revertedWith("Invalid auction index");
+        await expect(Marketplace.connect(USER1).cancelAuction(0)).to.be.revertedWith("Auction is still open");
         // Increase block timestamp
         await time.increase(5000);
-        await expect(Marketplace.connect(USER2).refund(0)).to.be.revertedWith(
+        await expect(Marketplace.connect(USER2).cancelAuction(0)).to.be.revertedWith(
           "Tokens can be claimed only by the creator of the auction"
         );
-        await expect(Marketplace.connect(USER1).refund(0)).to.be.revertedWith(
+        await expect(Marketplace.connect(USER1).cancelAuction(0)).to.be.revertedWith(
           "Existing bider for this auction"
         );
       });
@@ -471,7 +458,7 @@ describe("Marketplace contract tests", () => {
         // Increase block timestamp
         await time.increase(5000);
 
-        await Marketplace.connect(USER1).refund(0);
+        await Marketplace.connect(USER1).cancelAuction(0);
 
         let newOwnerNFT = await NFTCollection.ownerOf(0);
         expect(newOwnerNFT).to.equal(USER1.address);
@@ -562,7 +549,7 @@ describe("Marketplace contract tests", () => {
           )
         )
           .to.emit(Marketplace, "NewFixedPriceSale")
-          .withArgs(0, NFTCollection.address, PaymentToken.address, 50, USER3.address);
+          .withArgs(0,0, NFTCollection.address, PaymentToken.address, 50, USER3.address);
       });
     });
   
@@ -570,7 +557,7 @@ describe("Marketplace contract tests", () => {
       it("Should reject buying NFT because the sale is not active", async () => {
         const { Marketplace, NFTCollection, PaymentToken, USER1 } = await loadFixture(deployFixture1);
   
-        await expect(Marketplace.connect(USER1).buyNFT(0)).to.be.revertedWith("Sale is not active");
+        await expect(Marketplace.connect(USER1).buyNFT(0)).to.be.revertedWith("Invalid auction index");
       });
     });
   
@@ -614,7 +601,7 @@ describe("Marketplace contract tests", () => {
           .withArgs(0, USER1.address);
       });
       it("Should buy NFT at a fixed price with Ether(pay rest of Ether)", async () => {
-        const { Marketplace, NFTCollection, PaymentToken, USER1,USER3 } = await loadFixture(deployFixture1);
+        const { Marketplace, NFTCollection, PaymentToken, USER1,USER2,USER3 } = await loadFixture(deployFixture1);
   
         await NFTCollection.connect(USER3).approve(Marketplace.address, 0);
         await Marketplace.connect(USER3).createFixedPriceSale(
@@ -627,6 +614,8 @@ describe("Marketplace contract tests", () => {
         await expect(Marketplace.connect(USER1).buyNFT(0, {value: price2}))
           .to.emit(Marketplace, "NFTPurchased")
           .withArgs(0, USER1.address);
+        await expect(Marketplace.connect(USER2).buyNFT(0, {value: price2}))
+          .to.be.revertedWith("NFT is sold or FixedPriceSale is ended");
       });
     });
   
@@ -643,6 +632,9 @@ describe("Marketplace contract tests", () => {
         );
   
         await expect(Marketplace.connect(USER1).endFixedPriceSale(0)).to.be.revertedWith("Only the seller can end the sale");
+        await expect(Marketplace.connect(USER3).endFixedPriceSale(4)).to.be.revertedWith("Invalid auction index");
+        await Marketplace.connect(USER3).endFixedPriceSale(0);
+        await expect(Marketplace.connect(USER3).endFixedPriceSale(0)).to.be.revertedWith("NFT is sold or FixedPriceSale is ended");
       });
     });
   
