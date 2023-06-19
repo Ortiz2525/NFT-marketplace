@@ -113,7 +113,6 @@ contract Marketplace is Ownable, ReentrancyGuard {
         );
         require(_auctionPeriod > 0, "Invalid auction period");
         require(_initialBid > 0, "Invalid initial bid price");
-        //   require(_endBid > _initialBid, "Invalid end bid price");
         NFTCollection nftCollection = NFTCollection(_addressNFTCollection);
         require(
             nftCollection.ownerOf(_nftId) == msg.sender,
@@ -123,7 +122,6 @@ contract Marketplace is Ownable, ReentrancyGuard {
             nftCollection.getApproved(_nftId) == address(this),
             "Require NFT ownership transfer approval"
         );
-
         // Create new Auction object
         Auction memory newAuction = Auction({
             index: auctionIndex,
@@ -187,16 +185,17 @@ contract Marketplace is Ownable, ReentrancyGuard {
         if (auction.addressPaymentToken != address(0)) {
             // ERC20 token
             IERC20 paymentToken = IERC20(auction.addressPaymentToken);
-            paymentToken.transferFrom(msg.sender, address(this), currentPrice);
-            paymentToken.transfer(auction.creator, currentPrice);
+            paymentToken.transferFrom(
+                msg.sender,
+                auction.creator,
+                currentPrice
+            );
         } else {
             // Ether
-            require(msg.value >= _newBid * 10 ** 18, "Not enough value");
-            if (msg.value > currentPrice * 10 ** 18)
-                payable(msg.sender).transfer(
-                    msg.value - currentPrice * 10 ** 18
-                );
-            payable(auction.creator).transfer(currentPrice * 10 ** 18);
+            require(msg.value >= _newBid, "Not enough value");
+            if (msg.value > currentPrice)
+                payable(msg.sender).transfer(msg.value - currentPrice);
+            payable(auction.creator).transfer(currentPrice);
         }
         NFTCollection nftCollection = NFTCollection(
             auction.addressNFTCollection
@@ -272,10 +271,10 @@ contract Marketplace is Ownable, ReentrancyGuard {
             paymentToken.transferFrom(msg.sender, sale.seller, sale.price);
         } else {
             //Ether
-            require(msg.value >= sale.price * 10 ** 18, "Not enough value");
-            payable(sale.seller).transfer(sale.price * 10 ** 18);
-            if (msg.value > sale.price * 10 ** 18)
-                payable(msg.sender).transfer(msg.value - sale.price * 10 ** 18);
+            require(msg.value >= sale.price, "Not enough value");
+            payable(sale.seller).transfer(sale.price);
+            if (msg.value > sale.price)
+                payable(msg.sender).transfer(msg.value - sale.price);
         }
 
         NFTCollection nftCollection = NFTCollection(sale.addressNFTCollection);
@@ -293,7 +292,7 @@ contract Marketplace is Ownable, ReentrancyGuard {
     function cancelAuction(
         uint256 _auctionIndex
     ) external checkAuctionIndex(_auctionIndex) {
-        require(!isOpen(_auctionIndex), "Auction is still open");
+        // require(!isOpen(_auctionIndex), "Auction is still open");
         Auction storage auction = allAuctions[_auctionIndex];
         require(
             auction.creator == msg.sender,

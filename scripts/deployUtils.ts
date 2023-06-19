@@ -2,6 +2,7 @@ import { ethers } from "hardhat";
 
 export async function deploy(contractName: string, params: any[]) {
   const ContractArtifact = await ethers.getContractFactory(contractName);
+  console.log(params[0]);
   const gasPrice = await ContractArtifact.signer.getGasPrice();
   console.log(`Current gas price: ${gasPrice}`);
 

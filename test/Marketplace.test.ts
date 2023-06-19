@@ -437,7 +437,7 @@ describe("Marketplace contract tests", () => {
           claimFunctionSetUp.bind(null, true, 3600)
         );
         await expect(Marketplace.connect(USER1).cancelAuction(4545)).to.be.revertedWith("Invalid auction index");
-        await expect(Marketplace.connect(USER1).cancelAuction(0)).to.be.revertedWith("Auction is still open");
+       // await expect(Marketplace.connect(USER1).cancelAuction(0)).to.be.revertedWith("Auction is still open");
         // Increase block timestamp
         await time.increase(5000);
         await expect(Marketplace.connect(USER2).cancelAuction(0)).to.be.revertedWith(
